@@ -1,1 +1,64 @@
-{% extends 'planner/base.html' %}{% block content %}<main id="main-content" class="auth-layout"><section class="auth-story"><span class="eyebrow">YOUR NEXT ADVENTURE, SIMPLIFIED</span><h1>Less guesswork.<br>More <em>getaways.</em></h1><p>Give your next adventure a place to begin. Keep your plans together and your budget in view.</p><div class="landscape" aria-hidden="true"><div class="sun"></div><div class="mountain back"></div><div class="mountain front"></div><div class="route">✦ · · · · · · · · · ↗</div><span class="postcard">A change of scenery<br><strong>starts with a plan.</strong></span></div><div class="story-features"><span>01 / Plan your itinerary</span><span>02 / Track every expense</span><span>03 / Enjoy the journey</span></div></section><section class="auth-panel">{% block auth_content %}{% endblock %}</section></main>{% endblock %}
+
+{% extends 'planner/base.html' %}
+
+{% block content %}
+
+<main id="main-content" class="auth-layout">
+
+    <section class="auth-story">
+
+        <span class="eyebrow">
+            YOUR NEXT ADVENTURE, SIMPLIFIED
+        </span>
+
+        <h1>
+            Less guesswork.<br>
+            More <em>getaways.</em>
+        </h1>
+
+        <p>
+            Give your next adventure a place to begin.
+            Keep your plans together and your budget in view.
+        </p>
+
+        <div class="landscape" aria-hidden="true">
+
+            <div class="sun"></div>
+
+            <div class="mountain back"></div>
+
+            <div class="mountain front"></div>
+
+            <div class="route">
+                ✦ · · · · · · · · · ↗
+            </div>
+
+            <span class="postcard">
+                A change of scenery<br>
+                <strong>starts with a plan.</strong>
+            </span>
+
+        </div>
+
+        <div class="story-features">
+
+            <span>01 / Plan your itinerary</span>
+
+            <span>02 / Track every expense</span>
+
+            <span>03 / Enjoy the journey</span>
+
+        </div>
+
+    </section>
+
+    <section class="auth-panel">
+
+        {% block auth_content %}
+        {% endblock %}
+
+    </section>
+
+</main>
+
+{% endblock %}
