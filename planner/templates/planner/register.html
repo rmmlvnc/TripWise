@@ -1,1 +1,42 @@
-{% extends 'planner/auth_layout.html' %}{% block title %}Create your account · TripWise{% endblock %}{% block auth_content %}<span class="eyebrow muted">BIG ADVENTURES START SMALL</span><h2>Your journey starts here.</h2><p class="subtext">Create an account. Make room for adventure.</p><form method="post" class="field-form registration-form">{% csrf_token %}{% include 'planner/fields.html' %}<button class="button full">Create my account <span>↗</span></button></form><p class="auth-switch">Already have an account? <a href="{% url 'login' %}">Log in</a></p>{% endblock %}
+
+{% extends 'planner/auth_layout.html' %}
+
+{% block title %}
+    Create your account · TripWise
+{% endblock %}
+
+{% block auth_content %}
+
+    <span class="eyebrow muted">
+        BIG ADVENTURES START SMALL
+    </span>
+
+    <h2>
+        Your journey starts here.
+    </h2>
+
+    <p class="subtext">
+        Create an account. Make room for adventure.
+    </p>
+
+    <form method="post" class="field-form registration-form">
+
+        {% csrf_token %}
+
+        {% include 'planner/fields.html' %}
+
+        <button class="button full">
+            Create my account
+            <span>↗</span>
+        </button>
+
+    </form>
+
+    <p class="auth-switch">
+        Already have an account?
+        <a href="{% url 'login' %}">
+            Log in
+        </a>
+    </p>
+
+{% endblock %}
