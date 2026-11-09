@@ -1,1 +1,40 @@
-{% extends 'planner/base.html' %}{% block content %}<main id="main-content" class="workspace narrow"><section class="form-card"><span class="eyebrow muted">A CHANGE OF PLANS</span><h1>Delete {{ trip.destination }}?</h1><p>This permanently deletes this trip and all its recorded expenses.</p><form method="post" class="form-actions">{% csrf_token %}<a href="{% url 'trip_detail' trip.pk %}">Keep my trip</a><button class="button danger">Delete trip</button></form></section></main>{% endblock %}
+
+{% extends 'planner/base.html' %}
+
+{% block content %}
+
+<main id="main-content" class="workspace narrow">
+
+    <section class="form-card">
+
+        <span class="eyebrow muted">
+            A CHANGE OF PLANS
+        </span>
+
+        <h1>
+            Delete {{ trip.destination }}?
+        </h1>
+
+        <p>
+            This permanently deletes this trip and all its recorded expenses.
+        </p>
+
+        <form method="post" class="form-actions">
+
+            {% csrf_token %}
+
+            <a href="{% url 'trip_detail' trip.pk %}">
+                Keep my trip
+            </a>
+
+            <button class="button danger">
+                Delete trip
+            </button>
+
+        </form>
+
+    </section>
+
+</main>
+
+{% endblock %}
