@@ -11,7 +11,6 @@
 {% block content %}
 <main id="main-content" class="workspace dashboard">
 
-    <!-- Page Heading -->
     <section class="page-heading">
         <div>
             <span class="eyebrow muted">
@@ -27,7 +26,6 @@
         </a>
     </section>
 
-    <!-- Travel and Budget Summary -->
     <section class="stats" aria-label="Travel and budget summary">
 
         <article>
@@ -63,7 +61,6 @@
 
     </section>
 
-    <!-- Quick Start Guide -->
     <details class="dashboard-guide" {% if not trip_count %}open{% endif %}>
 
         <summary>
@@ -94,7 +91,6 @@
         </section>
     </details>
 
-    <!-- Travel Plans Heading -->
     <div class="section-heading">
         <h2>
             Your travel plans
@@ -106,7 +102,6 @@
         </span>
     </div>
 
-    <!-- Trip Search and Filters -->
     <form method="get" class="trip-filters" role="search">
 
         <div>
@@ -151,7 +146,6 @@
 
     </form>
 
-    <!-- Filter Results -->
     {% if query or status != 'all' %}
         <p class="muted" role="status">
             {{ filtered_count }} trip{{ filtered_count|pluralize }} found.
@@ -159,7 +153,6 @@
         </p>
     {% endif %}
 
-    <!-- Trip Cards -->
     {% if trips %}
 
         <section class="trip-grid">
@@ -183,7 +176,6 @@
                         {% endif %}
                     {% endwith %}
 
-                    <!-- Trip Status -->
                     <div class="trip-card-status">
                         <span class="trip-status-label">
 
@@ -200,7 +192,6 @@
                         </span>
                     </div>
 
-                    <!-- Trip Information -->
                     <div class="trip-info">
 
                         <span class="eyebrow muted">
@@ -235,7 +226,6 @@
 
         </section>
 
-        <!-- Pagination -->
         {% if page_obj.has_other_pages %}
 
             <nav class="pagination" aria-label="Trip pages">
@@ -267,7 +257,6 @@
 
         {% endif %}
 
-    <!-- No Search Results -->
     {% elif query or status != 'all' %}
 
         <section class="empty">
@@ -279,7 +268,6 @@
             </a>
         </section>
 
-    <!-- Empty Dashboard -->
     {% else %}
 
         <section class="empty">
@@ -302,7 +290,6 @@
 
     {% endif %}
 
-    <!-- Recent Expenses -->
     <section class="expenses-panel">
 
         <div class="section-heading">
