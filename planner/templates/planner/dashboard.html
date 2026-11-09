@@ -1,1 +1,350 @@
-{% extends 'planner/base.html' %}{% load tripwise_assets %}{% block title %}My trips · TripWise{% endblock %}{% block extra_css %}<link rel="stylesheet" href="{% versioned_static 'planner/dashboard.css' %}">{% endblock %}{% block content %}<main id="main-content" class="workspace dashboard"><section class="page-heading"><div><span class="eyebrow muted">HELLO, {{ user.first_name|default:user.username|upper }}</span><h1>Your trips, all in one place.</h1><p>Plan your next adventure and keep your spending on track.</p></div><a class="button" href="{% url 'trip_create' %}">＋ Plan a trip</a></section><section class="stats" aria-label="Travel and budget summary"><article><span>YOUR TRIPS</span><strong>{{ trip_count }}</strong><small>{{ upcoming_count }} upcoming</small></article><article><span>PLANNED BUDGET</span><strong>₱{{ total_budget|floatformat:"2g" }}</strong><small>Across all your trips</small></article><article><span>TOTAL SPENT</span><strong>₱{{ total_spent|floatformat:"2g" }}</strong><small>From your recorded expenses</small></article><article class="accent"><span>BUDGET REMAINING</span><strong>₱{{ remaining|floatformat:"2g" }}</strong><small>{% if remaining < 0 %}You’re over your planned budget{% else %}Keep your next move in view{% endif %}</small></article></section><details class="dashboard-guide" {% if not trip_count %}open{% endif %}><summary><span>New to TripWise? Start with these 3 steps.</span><span class="guide-toggle" aria-hidden="true">＋</span></summary><section class="quick-start" aria-label="How to use TripWise"><div><span class="step-dot">1</span><strong>Create a trip</strong><p>Add your destination, dates, and budget.</p></div><div><span class="step-dot">2</span><strong>Explore your destination</strong><p>Open a trip to find its location and weather.</p></div><div><span class="step-dot">3</span><strong>Track your spending</strong><p>Add expenses to update your remaining budget.</p></div></section></details><div class="section-heading"><h2>Your travel plans <span class="count">{{ trip_count }}</span></h2><span class="muted">Open a trip to manage its details and expenses</span></div><form method="get" class="trip-filters" role="search"><div><label for="trip-search">Destination</label><input type="search" id="trip-search" name="q" value="{{ query }}" placeholder="Search by destination" maxlength="200"></div><div><label for="trip-status">Trip status</label><select id="trip-status" name="status"><option value="all" {% if status == 'all' %}selected{% endif %}>All trips</option><option value="upcoming" {% if status == 'upcoming' %}selected{% endif %}>Upcoming</option><option value="ongoing" {% if status == 'ongoing' %}selected{% endif %}>In progress</option><option value="past" {% if status == 'past' %}selected{% endif %}>Past trips</option></select></div><button class="button">Search trips</button>{% if query or status != 'all' %}<a href="{% url 'dashboard' %}">Clear filters</a>{% endif %}</form>{% if query or status != 'all' %}<p class="muted" role="status">{{ filtered_count }} trip{{ filtered_count|pluralize }} found. Summary totals above always include all your trips.</p>{% endif %}{% if trips %}<section class="trip-grid">{% for trip in trips %}<a class="trip-card" href="{% url 'trip_detail' trip.pk %}">{% with cover=trip.photos.all.0 %}{% if cover %}<div class="trip-cover"><img src="{{ cover.url }}" alt="{{ cover.caption|default:trip.destination }}" loading="lazy" decoding="async" width="600" height="360"></div>{% endif %}{% endwith %}<div class="trip-card-status"><span class="trip-status-label">{% now 'Y-m-d' as today %}{% if trip.end_date|date:'Y-m-d' < today %}Past adventure{% elif trip.start_date|date:'Y-m-d' > today %}Upcoming adventure{% else %}On your adventure{% endif %}</span></div><div class="trip-info"><span class="eyebrow muted">YOUR NEXT CHAPTER</span><h3>{{ trip.destination }} <span aria-hidden="true">↗</span></h3><span class="view-trip-label">View trip &amp; expenses</span><p>{{ trip.start_date|date:'M j, Y' }} — {{ trip.end_date|date:'M j, Y' }}</p><div class="trip-bottom"><span>Planned budget</span><strong>₱{{ trip.budget|floatformat:"2g" }}</strong></div></div></a>{% endfor %}</section>{% if page_obj.has_other_pages %}<nav class="pagination" aria-label="Trip pages">{% if page_obj.has_previous %}<a class="button secondary small" href="?q={{ query|urlencode }}&amp;status={{ status }}&amp;page={{ page_obj.previous_page_number }}">← Previous</a>{% endif %}<span>Page {{ page_obj.number }} of {{ page_obj.paginator.num_pages }}</span>{% if page_obj.has_next %}<a class="button secondary small" href="?q={{ query|urlencode }}&amp;status={{ status }}&amp;page={{ page_obj.next_page_number }}">Next →</a>{% endif %}</nav>{% endif %}{% elif query or status != 'all' %}<section class="empty"><h2>No trips match your search.</h2><p>Try a different destination or choose All trips.</p><a class="button secondary" href="{% url 'dashboard' %}">Show all trips</a></section>{% else %}<section class="empty"><span class="empty-icon">✧</span><h2>A blank page. Endless possibilities.</h2><p>You haven't planned a trip yet. Pick a place, set a budget,<br>and give your next adventure a little direction.</p><a class="button" href="{% url 'trip_create' %}">Plan my first trip ↗</a></section>{% endif %}<section class="expenses-panel"><div class="section-heading"><h2>Recent expenses</h2><span class="muted">The small details, accounted for.</span></div>{% for expense in recent_expenses %}<a class="expense-row" href="{% url 'trip_detail' expense.trip_id %}"><div><strong>{{ expense.title }}</strong><small>{{ expense.trip.destination }} · {{ expense.date|date:'M j, Y' }}</small></div><strong>₱{{ expense.amount|floatformat:"2g" }}</strong></a>{% empty %}<p class="muted">No expenses yet. Open a trip to start tracking your spending.</p>{% endfor %}</section></main>{% endblock %}
+
+{% extends 'planner/base.html' %}
+{% load tripwise_assets %}
+
+{% block title %}My trips · TripWise{% endblock %}
+
+{% block extra_css %}
+<link rel="stylesheet" href="{% versioned_static 'planner/dashboard.css' %}">
+{% endblock %}
+
+{% block content %}
+<main id="main-content" class="workspace dashboard">
+
+    <!-- Page Heading -->
+    <section class="page-heading">
+        <div>
+            <span class="eyebrow muted">
+                HELLO, {{ user.first_name|default:user.username|upper }}
+            </span>
+
+            <h1>Your trips, all in one place.</h1>
+            <p>Plan your next adventure and keep your spending on track.</p>
+        </div>
+
+        <a class="button" href="{% url 'trip_create' %}">
+            ＋ Plan a trip
+        </a>
+    </section>
+
+    <!-- Travel and Budget Summary -->
+    <section class="stats" aria-label="Travel and budget summary">
+
+        <article>
+            <span>YOUR TRIPS</span>
+            <strong>{{ trip_count }}</strong>
+            <small>{{ upcoming_count }} upcoming</small>
+        </article>
+
+        <article>
+            <span>PLANNED BUDGET</span>
+            <strong>₱{{ total_budget|floatformat:"2g" }}</strong>
+            <small>Across all your trips</small>
+        </article>
+
+        <article>
+            <span>TOTAL SPENT</span>
+            <strong>₱{{ total_spent|floatformat:"2g" }}</strong>
+            <small>From your recorded expenses</small>
+        </article>
+
+        <article class="accent">
+            <span>BUDGET REMAINING</span>
+            <strong>₱{{ remaining|floatformat:"2g" }}</strong>
+
+            <small>
+                {% if remaining < 0 %}
+                    You’re over your planned budget
+                {% else %}
+                    Keep your next move in view
+                {% endif %}
+            </small>
+        </article>
+
+    </section>
+
+    <!-- Quick Start Guide -->
+    <details class="dashboard-guide" {% if not trip_count %}open{% endif %}>
+
+        <summary>
+            <span>New to TripWise? Start with these 3 steps.</span>
+            <span class="guide-toggle" aria-hidden="true">＋</span>
+        </summary>
+
+        <section class="quick-start" aria-label="How to use TripWise">
+
+            <div>
+                <span class="step-dot">1</span>
+                <strong>Create a trip</strong>
+                <p>Add your destination, dates, and budget.</p>
+            </div>
+
+            <div>
+                <span class="step-dot">2</span>
+                <strong>Explore your destination</strong>
+                <p>Open a trip to find its location and weather.</p>
+            </div>
+
+            <div>
+                <span class="step-dot">3</span>
+                <strong>Track your spending</strong>
+                <p>Add expenses to update your remaining budget.</p>
+            </div>
+
+        </section>
+    </details>
+
+    <!-- Travel Plans Heading -->
+    <div class="section-heading">
+        <h2>
+            Your travel plans
+            <span class="count">{{ trip_count }}</span>
+        </h2>
+
+        <span class="muted">
+            Open a trip to manage its details and expenses
+        </span>
+    </div>
+
+    <!-- Trip Search and Filters -->
+    <form method="get" class="trip-filters" role="search">
+
+        <div>
+            <label for="trip-search">Destination</label>
+            <input
+                type="search"
+                id="trip-search"
+                name="q"
+                value="{{ query }}"
+                placeholder="Search by destination"
+                maxlength="200"
+            >
+        </div>
+
+        <div>
+            <label for="trip-status">Trip status</label>
+
+            <select id="trip-status" name="status">
+                <option value="all" {% if status == 'all' %}selected{% endif %}>
+                    All trips
+                </option>
+
+                <option value="upcoming" {% if status == 'upcoming' %}selected{% endif %}>
+                    Upcoming
+                </option>
+
+                <option value="ongoing" {% if status == 'ongoing' %}selected{% endif %}>
+                    In progress
+                </option>
+
+                <option value="past" {% if status == 'past' %}selected{% endif %}>
+                    Past trips
+                </option>
+            </select>
+        </div>
+
+        <button class="button">Search trips</button>
+
+        {% if query or status != 'all' %}
+            <a href="{% url 'dashboard' %}">Clear filters</a>
+        {% endif %}
+
+    </form>
+
+    <!-- Filter Results -->
+    {% if query or status != 'all' %}
+        <p class="muted" role="status">
+            {{ filtered_count }} trip{{ filtered_count|pluralize }} found.
+            Summary totals above always include all your trips.
+        </p>
+    {% endif %}
+
+    <!-- Trip Cards -->
+    {% if trips %}
+
+        <section class="trip-grid">
+
+            {% for trip in trips %}
+
+                <a class="trip-card" href="{% url 'trip_detail' trip.pk %}">
+
+                    {% with cover=trip.photos.all.0 %}
+                        {% if cover %}
+                            <div class="trip-cover">
+                                <img
+                                    src="{{ cover.url }}"
+                                    alt="{{ cover.caption|default:trip.destination }}"
+                                    loading="lazy"
+                                    decoding="async"
+                                    width="600"
+                                    height="360"
+                                >
+                            </div>
+                        {% endif %}
+                    {% endwith %}
+
+                    <!-- Trip Status -->
+                    <div class="trip-card-status">
+                        <span class="trip-status-label">
+
+                            {% now 'Y-m-d' as today %}
+
+                            {% if trip.end_date|date:'Y-m-d' < today %}
+                                Past adventure
+                            {% elif trip.start_date|date:'Y-m-d' > today %}
+                                Upcoming adventure
+                            {% else %}
+                                On your adventure
+                            {% endif %}
+
+                        </span>
+                    </div>
+
+                    <!-- Trip Information -->
+                    <div class="trip-info">
+
+                        <span class="eyebrow muted">
+                            YOUR NEXT CHAPTER
+                        </span>
+
+                        <h3>
+                            {{ trip.destination }}
+                            <span aria-hidden="true">↗</span>
+                        </h3>
+
+                        <span class="view-trip-label">
+                            View trip &amp; expenses
+                        </span>
+
+                        <p>
+                            {{ trip.start_date|date:'M j, Y' }}
+                            —
+                            {{ trip.end_date|date:'M j, Y' }}
+                        </p>
+
+                        <div class="trip-bottom">
+                            <span>Planned budget</span>
+                            <strong>₱{{ trip.budget|floatformat:"2g" }}</strong>
+                        </div>
+
+                    </div>
+
+                </a>
+
+            {% endfor %}
+
+        </section>
+
+        <!-- Pagination -->
+        {% if page_obj.has_other_pages %}
+
+            <nav class="pagination" aria-label="Trip pages">
+
+                {% if page_obj.has_previous %}
+                    <a
+                        class="button secondary small"
+                        href="?q={{ query|urlencode }}&amp;status={{ status }}&amp;page={{ page_obj.previous_page_number }}"
+                    >
+                        ← Previous
+                    </a>
+                {% endif %}
+
+                <span>
+                    Page {{ page_obj.number }}
+                    of {{ page_obj.paginator.num_pages }}
+                </span>
+
+                {% if page_obj.has_next %}
+                    <a
+                        class="button secondary small"
+                        href="?q={{ query|urlencode }}&amp;status={{ status }}&amp;page={{ page_obj.next_page_number }}"
+                    >
+                        Next →
+                    </a>
+                {% endif %}
+
+            </nav>
+
+        {% endif %}
+
+    <!-- No Search Results -->
+    {% elif query or status != 'all' %}
+
+        <section class="empty">
+            <h2>No trips match your search.</h2>
+            <p>Try a different destination or choose All trips.</p>
+
+            <a class="button secondary" href="{% url 'dashboard' %}">
+                Show all trips
+            </a>
+        </section>
+
+    <!-- Empty Dashboard -->
+    {% else %}
+
+        <section class="empty">
+
+            <span class="empty-icon">✧</span>
+
+            <h2>A blank page. Endless possibilities.</h2>
+
+            <p>
+                You haven't planned a trip yet. Pick a place, set a budget,
+                <br>
+                and give your next adventure a little direction.
+            </p>
+
+            <a class="button" href="{% url 'trip_create' %}">
+                Plan my first trip ↗
+            </a>
+
+        </section>
+
+    {% endif %}
+
+    <!-- Recent Expenses -->
+    <section class="expenses-panel">
+
+        <div class="section-heading">
+            <h2>Recent expenses</h2>
+
+            <span class="muted">
+                The small details, accounted for.
+            </span>
+        </div>
+
+        {% for expense in recent_expenses %}
+
+            <a
+                class="expense-row"
+                href="{% url 'trip_detail' expense.trip_id %}"
+            >
+
+                <div>
+                    <strong>{{ expense.title }}</strong>
+
+                    <small>
+                        {{ expense.trip.destination }}
+                        ·
+                        {{ expense.date|date:'M j, Y' }}
+                    </small>
+                </div>
+
+                <strong>
+                    ₱{{ expense.amount|floatformat:"2g" }}
+                </strong>
+
+            </a>
+
+        {% empty %}
+
+            <p class="muted">
+                No expenses yet. Open a trip to start tracking your spending.
+            </p>
+
+        {% endfor %}
+
+    </section>
+
+</main>
+{% endblock %}
