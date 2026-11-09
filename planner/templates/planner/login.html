@@ -1,1 +1,54 @@
-{% extends 'planner/auth_layout.html' %}{% block title %}Welcome back · TripWise{% endblock %}{% block auth_content %}<span class="eyebrow muted">YOUR JOURNEY CONTINUES</span><h2>Welcome back.</h2><p class="subtext">Your plans are right where you left them.</p><form method="post" class="field-form">{% csrf_token %}{% include 'planner/fields.html' %}{% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}<button class="button full">Log in to TripWise <span>↗</span></button></form><p class="auth-switch">New around here? <a href="{% url 'register' %}">Create an account</a></p><div class="auth-note">✧ &nbsp; A home for your plans, wherever you're headed.</div>{% endblock %}
+
+{% extends 'planner/auth_layout.html' %}
+
+{% block title %}
+    Welcome back · TripWise
+{% endblock %}
+
+{% block auth_content %}
+
+    <span class="eyebrow muted">
+        YOUR JOURNEY CONTINUES
+    </span>
+
+    <h2>
+        Welcome back.
+    </h2>
+
+    <p class="subtext">
+        Your plans are right where you left them.
+    </p>
+
+    <form method="post" class="field-form">
+
+        {% csrf_token %}
+
+        {% include 'planner/fields.html' %}
+
+        {% if next %}
+            <input
+                type="hidden"
+                name="next"
+                value="{{ next }}"
+            >
+        {% endif %}
+
+        <button class="button full">
+            Log in to TripWise
+            <span>↗</span>
+        </button>
+
+    </form>
+
+    <p class="auth-switch">
+        New around here?
+        <a href="{% url 'register' %}">
+            Create an account
+        </a>
+    </p>
+
+    <div class="auth-note">
+        ✧ &nbsp; A home for your plans, wherever you're headed.
+    </div>
+
+{% endblock %}
