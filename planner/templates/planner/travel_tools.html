@@ -1,17 +1,392 @@
+
 {% load static tripwise_assets %}
-<section class="travel-tools" id="travel-tools" data-api-base="{% url 'trip_api' trip.pk 'destinations' %}">
-  <div class="section-heading"><h2>Explore your destination</h2><span class="muted">Useful details for the road ahead.</span></div>
-  <div class="tools-grid">
-    <article class="form-card"><span class="eyebrow muted">STEP 1 · CHOOSE YOUR LOCATION</span><h2>Find your destination</h2><p class="muted">Search for your city and country, then select the correct result below.</p>
-      {% if trip.location_label %}<p class="selected-place">{{ trip.location_label }}<br><small>{{ trip.latitude|floatformat:5 }}, {{ trip.longitude|floatformat:5 }}</small></p>{% endif %}
-      <form id="destination-search" class="tool-form"><label for="place-query">City, region, or address</label><div class="tool-inline"><input id="place-query" name="q" maxlength="200" minlength="2" value="{{ trip.destination }}" required><button class="button small">Search</button></div></form>
-      <p class="help">For example: Surigao City, Philippines. Choosing a result saves its location to this trip.</p><div id="destination-results" class="tool-result" aria-live="polite"></div>
-      <form id="select-location" method="post" action="{% url 'select_destination' trip.pk %}" hidden>{% csrf_token %}<input name="token" id="location-token" type="hidden"></form>
-      <p class="source">Powered by <a href="https://www.geoapify.com/" target="_blank" rel="noopener">Geoapify</a> · <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a></p>
-    </article>
-    <article class="form-card"><span class="eyebrow muted">STEP 2 · CHECK THE WEATHER</span><h2>Weather for your trip</h2><p class="muted">Forecasts are available for the next 16 days. Only dates overlapping your trip are shown.</p>{% if trip.location_label %}<button type="button" id="weather-load" class="button secondary small">Check forecast</button>{% else %}<p class="info-hint">First, search for your destination and select a result.</p><button type="button" id="weather-load" class="button secondary small" disabled>Choose a location first</button>{% endif %}<div id="weather-results" class="tool-result" aria-live="polite"></div><p class="source">Weather data by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> · <a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a></p></article>
-    <article class="form-card"><span class="eyebrow muted">BUDGET CONVERTER</span><h2>Your budget, abroad</h2><p class="muted">Convert your planned ₱{{ trip.budget|floatformat:2 }} budget. Your saved budget and expenses stay in PHP.</p><form id="currency-form" class="tool-form"><label for="currency">Convert PHP to</label><div class="tool-inline"><select id="currency" name="currency">{% for code in currencies %}<option value="{{ code }}">{{ code }}</option>{% endfor %}</select><button class="button small">Convert</button></div></form><div id="currency-results" class="tool-result" aria-live="polite"></div><p class="source">Reference rates from <a href="https://frankfurter.dev/" target="_blank" rel="noopener">Frankfurter</a>. Estimates exclude bank fees.</p></article>
-    <article class="form-card"><span class="eyebrow muted">DESTINATION GUIDE</span><h2>Get to know the place</h2><p class="muted">Find an introduction to {{ trip.destination }}.</p><button type="button" id="wiki-load" class="button secondary small">Explore destination</button><div id="wiki-results" class="tool-result" aria-live="polite"></div><p class="source">Article excerpts from <a href="https://en.wikipedia.org/" target="_blank" rel="noopener">Wikipedia</a>, via MediaWiki · <a href="https://creativecommons.org/licenses/by-sa/4.0/" target="_blank" rel="noopener">CC BY-SA</a>. Search results may need checking.</p></article>
-  </div>
-  <section class="form-card photo-section" id="trip-photos"><span class="eyebrow muted">TRIP PHOTOS</span><h2>Memories worth keeping</h2><p class="source">Photo storage provided by Cloudinary.</p><p class="muted">Add a JPEG, PNG, or WebP photo, up to 5 MB.</p><form method="post" action="{% url 'photo_upload' trip.pk %}" enctype="multipart/form-data" class="field-form photo-form">{% csrf_token %}{{ photo_form.as_p }}<div id="photo-preview" hidden><img alt="Preview of your selected photo"><span id="photo-filename"></span></div><div id="photo-upload-status" aria-live="polite" tabindex="-1"></div><button class="button">Save photo ↗</button></form><div class="photo-grid">{% for photo in trip.photos.all %}<figure><img src="{{ photo.url }}" alt="{{ photo.caption|default:'Trip photo' }}" loading="lazy"><figcaption>{{ photo.caption }}<form method="post" action="{% url 'photo_delete' photo.pk %}" data-confirm="Permanently remove this photo from your trip and photo storage?">{% csrf_token %}<button class="danger-link">Remove photo</button></form></figcaption></figure>{% empty %}<p class="muted">Your story is still unfolding. Add your first photo.</p>{% endfor %}</div></section>
-</section><script src="{% versioned_static 'planner/travel-tools.js' %}" defer></script>
+
+<section
+    class="travel-tools"
+    id="travel-tools"
+    data-api-base="{% url 'trip_api' trip.pk 'destinations' %}"
+>
+
+    <div class="section-heading">
+        <h2>Explore your destination</h2>
+        <span class="muted">Useful details for the road ahead.</span>
+    </div>
+
+    <div class="tools-grid">
+
+        <article class="form-card">
+
+            <span class="eyebrow muted">
+                STEP 1 · CHOOSE YOUR LOCATION
+            </span>
+
+            <h2>Find your destination</h2>
+
+            <p class="muted">
+                Search for your city and country, then select the correct result below.
+            </p>
+
+            {% if trip.location_label %}
+
+                <p class="selected-place">
+                    {{ trip.location_label }}<br>
+
+                    <small>
+                        {{ trip.latitude|floatformat:5 }},
+                        {{ trip.longitude|floatformat:5 }}
+                    </small>
+                </p>
+
+            {% endif %}
+
+            <form id="destination-search" class="tool-form">
+
+                <label for="place-query">
+                    City, region, or address
+                </label>
+
+                <div class="tool-inline">
+
+                    <input
+                        id="place-query"
+                        name="q"
+                        maxlength="200"
+                        minlength="2"
+                        value="{{ trip.destination }}"
+                        required
+                    >
+
+                    <button class="button small">
+                        Search
+                    </button>
+
+                </div>
+
+            </form>
+
+            <p class="help">
+                For example: Surigao City, Philippines.
+                Choosing a result saves its location to this trip.
+            </p>
+
+            <div
+                id="destination-results"
+                class="tool-result"
+                aria-live="polite"
+            ></div>
+
+            <form
+                id="select-location"
+                method="post"
+                action="{% url 'select_destination' trip.pk %}"
+                hidden
+            >
+
+                {% csrf_token %}
+
+                <input
+                    name="token"
+                    id="location-token"
+                    type="hidden"
+                >
+
+            </form>
+
+            <p class="source">
+                Powered by
+                <a
+                    href="https://www.geoapify.com/"
+                    target="_blank"
+                    rel="noopener"
+                >
+                    Geoapify
+                </a>
+                ·
+                <a
+                    href="https://www.openstreetmap.org/copyright"
+                    target="_blank"
+                    rel="noopener"
+                >
+                    OpenStreetMap contributors
+                </a>
+            </p>
+
+        </article>
+
+        <article class="form-card">
+
+            <span class="eyebrow muted">
+                STEP 2 · CHECK THE WEATHER
+            </span>
+
+            <h2>Weather for your trip</h2>
+
+            <p class="muted">
+                Forecasts are available for the next 16 days.
+                Only dates overlapping your trip are shown.
+            </p>
+
+            {% if trip.location_label %}
+
+                <button
+                    type="button"
+                    id="weather-load"
+                    class="button secondary small"
+                >
+                    Check forecast
+                </button>
+
+            {% else %}
+
+                <p class="info-hint">
+                    First, search for your destination and select a result.
+                </p>
+
+                <button
+                    type="button"
+                    id="weather-load"
+                    class="button secondary small"
+                    disabled
+                >
+                    Choose a location first
+                </button>
+
+            {% endif %}
+
+            <div
+                id="weather-results"
+                class="tool-result"
+                aria-live="polite"
+            ></div>
+
+            <p class="source">
+                Weather data by
+                <a
+                    href="https://open-meteo.com/"
+                    target="_blank"
+                    rel="noopener"
+                >
+                    Open-Meteo
+                </a>
+                ·
+                <a
+                    href="https://creativecommons.org/licenses/by/4.0/"
+                    target="_blank"
+                    rel="noopener"
+                >
+                    CC BY 4.0
+                </a>
+            </p>
+
+        </article>
+
+        <article class="form-card">
+
+            <span class="eyebrow muted">
+                BUDGET CONVERTER
+            </span>
+
+            <h2>Your budget, abroad</h2>
+
+            <p class="muted">
+                Convert your planned ₱{{ trip.budget|floatformat:2 }} budget.
+                Your saved budget and expenses stay in PHP.
+            </p>
+
+            <form id="currency-form" class="tool-form">
+
+                <label for="currency">
+                    Convert PHP to
+                </label>
+
+                <div class="tool-inline">
+
+                    <select id="currency" name="currency">
+
+                        {% for code in currencies %}
+
+                            <option value="{{ code }}">
+                                {{ code }}
+                            </option>
+
+                        {% endfor %}
+
+                    </select>
+
+                    <button class="button small">
+                        Convert
+                    </button>
+
+                </div>
+
+            </form>
+
+            <div
+                id="currency-results"
+                class="tool-result"
+                aria-live="polite"
+            ></div>
+
+            <p class="source">
+                Reference rates from
+                <a
+                    href="https://frankfurter.dev/"
+                    target="_blank"
+                    rel="noopener"
+                >
+                    Frankfurter
+                </a>.
+                Estimates exclude bank fees.
+            </p>
+
+        </article>
+
+        <article class="form-card">
+
+            <span class="eyebrow muted">
+                DESTINATION GUIDE
+            </span>
+
+            <h2>Get to know the place</h2>
+
+            <p class="muted">
+                Find an introduction to {{ trip.destination }}.
+            </p>
+
+            <button
+                type="button"
+                id="wiki-load"
+                class="button secondary small"
+            >
+                Explore destination
+            </button>
+
+            <div
+                id="wiki-results"
+                class="tool-result"
+                aria-live="polite"
+            ></div>
+
+            <p class="source">
+                Article excerpts from
+                <a
+                    href="https://en.wikipedia.org/"
+                    target="_blank"
+                    rel="noopener"
+                >
+                    Wikipedia
+                </a>,
+                via MediaWiki ·
+                <a
+                    href="https://creativecommons.org/licenses/by-sa/4.0/"
+                    target="_blank"
+                    rel="noopener"
+                >
+                    CC BY-SA
+                </a>.
+                Search results may need checking.
+            </p>
+
+        </article>
+
+    </div>
+
+    <section class="form-card photo-section" id="trip-photos">
+
+        <span class="eyebrow muted">
+            TRIP PHOTOS
+        </span>
+
+        <h2>Memories worth keeping</h2>
+
+        <p class="source">
+            Photo storage provided by Cloudinary.
+        </p>
+
+        <p class="muted">
+            Add a JPEG, PNG, or WebP photo, up to 5 MB.
+        </p>
+
+        <form
+            method="post"
+            action="{% url 'photo_upload' trip.pk %}"
+            enctype="multipart/form-data"
+            class="field-form photo-form"
+        >
+
+            {% csrf_token %}
+
+            {{ photo_form.as_p }}
+
+            <div id="photo-preview" hidden>
+
+                <img alt="Preview of your selected photo">
+
+                <span id="photo-filename"></span>
+
+            </div>
+
+            <div
+                id="photo-upload-status"
+                aria-live="polite"
+                tabindex="-1"
+            ></div>
+
+            <button class="button">
+                Save photo ↗
+            </button>
+
+        </form>
+
+        <div class="photo-grid">
+
+            {% for photo in trip.photos.all %}
+
+                <figure>
+
+                    <img
+                        src="{{ photo.url }}"
+                        alt="{{ photo.caption|default:'Trip photo' }}"
+                        loading="lazy"
+                    >
+
+                    <figcaption>
+
+                        {{ photo.caption }}
+
+                        <form
+                            method="post"
+                            action="{% url 'photo_delete' photo.pk %}"
+                            data-confirm="Permanently remove this photo from your trip and photo storage?"
+                        >
+
+                            {% csrf_token %}
+
+                            <button class="danger-link">
+                                Remove photo
+                            </button>
+
+                        </form>
+
+                    </figcaption>
+
+                </figure>
+
+            {% empty %}
+
+                <p class="muted">
+                    Your story is still unfolding. Add your first photo.
+                </p>
+
+            {% endfor %}
+
+        </div>
+
+    </section>
+
+</section>
+
+<script
+    src="{% versioned_static 'planner/travel-tools.js' %}"
+    defer
+></script>
