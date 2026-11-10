@@ -8,6 +8,7 @@
   }
   async function load(provider, params, target, button, display) {
     const originalLabel = button.textContent;
+    let cooldown = 0;
     button.disabled = true; button.textContent = 'Loading…';
     target.replaceChildren(node('p', 'Checking the latest information…', 'muted'));
     target.setAttribute('aria-busy', 'true');
@@ -15,12 +16,24 @@
       const response = await fetch(endpoint + provider + '/?' + new URLSearchParams(params), {headers: {'Accept': 'application/json'}});
       if (response.redirected) throw new Error('Please log in again to continue.');
       const data = await response.json();
+      cooldown = Number(data.retry_after) || 0;
       if (!response.ok) throw new Error(data.error || 'Service unavailable. Please try again.');
       target.replaceChildren(); display(data, target);
     } catch (error) {
       const friendly = error.message?.includes('not configured') ? 'This travel tool is unavailable right now. Your trip is saved, and you can still manage your budget. Please try again later.' : (error.message || 'Unable to connect. Please try again.');
       target.replaceChildren(node('p', friendly, 'error'));
-    } finally {button.disabled = false; button.textContent = originalLabel; target.setAttribute('aria-busy', 'false');}
+    } finally {
+      target.setAttribute('aria-busy', 'false');
+      if (provider === 'weather' && cooldown > 0) {
+        const until = Date.now() + cooldown * 1000;
+        const tick = () => {
+          const seconds = Math.ceil((until - Date.now()) / 1000);
+          button.disabled = seconds > 0;
+          button.textContent = seconds > 60 ? `Try again in ${Math.ceil(seconds / 60)} min` : seconds > 0 ? `Try again in ${seconds}s` : originalLabel;
+          if (seconds > 0) window.setTimeout(tick, 1000);
+        }; tick();
+      } else {button.disabled = false; button.textContent = originalLabel;}
+    }
   }
   document.getElementById('destination-search').addEventListener('submit', event => {
     event.preventDefault();
@@ -36,6 +49,7 @@
   });
   document.getElementById('weather-load').addEventListener('click', event => {
     load('weather', {}, document.getElementById('weather-results'), event.currentTarget, (data, target) => {
+      if (data.updated_at) target.append(node('p', (data.stale ? 'Showing a saved forecast because live weather is unavailable. Last updated: ' : 'Forecast updated: ') + new Date(data.updated_at).toLocaleString(), data.stale ? 'info-hint' : 'muted'));
       if (data.partial) target.append(node('p', 'Showing only trip dates within the current forecast window.', 'muted'));
       const table = document.createElement('table'); table.className = 'forecast-table';
       const head = document.createElement('thead'); const row = document.createElement('tr');

@@ -7,12 +7,15 @@ import re
 import time
 import uuid
 from datetime import date, timedelta
+from email.utils import parsedate_to_datetime
 from decimal import Decimal, InvalidOperation
 from urllib.parse import urlsplit
 
 import requests
 from django.conf import settings
 from django.core.cache import cache
+from django.db.models import Q
+from django.utils import timezone
 
 
 logger = logging.getLogger(__name__)
@@ -20,6 +23,29 @@ logger = logging.getLogger(__name__)
 
 class APIError(Exception):
     pass
+
+
+class WeatherRateLimit(APIError):
+    def __init__(self, message, retry_after=900):
+        super().__init__(message)
+        self.retry_after = max(1, int(retry_after))
+
+
+def _retry_seconds(response):
+    value = response.headers.get("Retry-After", "")
+    if isinstance(value, str):
+        try:
+            return max(1, min(int(value), 7 * 86400))
+        except ValueError:
+            try:
+                stamp = parsedate_to_datetime(value)
+                if stamp.tzinfo is None:
+                    stamp = stamp.replace(tzinfo=timezone.get_current_timezone())
+                return max(1, min(int((stamp - timezone.now()).total_seconds()), 7 * 86400))
+            except (ValueError, TypeError, OverflowError):
+                pass
+    # The actual quota window is unknown without a provider Retry-After header.
+    return 900
 
 
 CURRENCIES = (
@@ -57,7 +83,7 @@ def _get(url, params):
                     time.sleep(0.25)
                     continue
                 if status == 429:
-                    raise APIError("The weather provider has reached its request limit. Please wait a few minutes before trying again.") from None
+                    raise WeatherRateLimit("The weather provider has reached its request limit. New checks are paused to avoid repeated requests. The provider may need longer to reset.", _retry_seconds(exc.response)) from None
                 if status == 400:
                     raise APIError("The weather provider could not process these trip dates. Check the selected destination and travel dates.") from None
                 if status in (401, 403):
@@ -201,7 +227,62 @@ def weather(latitude, longitude, start, end):
             ) from None
 
     key = f"weather:{latitude}:{longitude}:{first}:{last}"
-    return _cached(key, 1800, load)
+    if not getattr(settings, "WEATHER_PERSISTENT_CACHE", True):
+        return _cached(key, 1800, load)
+    return _persistent_forecast(key, load)
+
+
+def _persistent_forecast(key, load):
+    from .models import ForecastCache
+    now = timezone.now()
+    entry, _ = ForecastCache.objects.get_or_create(key=key)
+
+    def saved(stale=False, wait=0):
+        return {**entry.payload, "cached": True, "stale": stale,
+                "updated_at": entry.fetched_at.isoformat(), "retry_after": wait}
+
+    if entry.payload and entry.fetched_at and entry.fetched_at >= now - timedelta(minutes=30):
+        return saved()
+
+    control, _ = ForecastCache.objects.get_or_create(key="open-meteo:control")
+
+    def fallback(error):
+        if entry.payload and entry.fetched_at and entry.fetched_at >= now - timedelta(hours=6):
+            return saved(stale=True, wait=getattr(error, "retry_after", 60))
+        raise error
+
+    if control.retry_at and control.retry_at > now:
+        wait = max(1, int((control.retry_at - now).total_seconds()))
+        return fallback(WeatherRateLimit("Weather checks are paused after a provider error or request limit. Please wait before trying again; the provider's reset time may be longer.", wait))
+
+    # Atomic conditional update: only one worker may fetch across all destinations.
+    acquired = ForecastCache.objects.filter(pk=control.pk).filter(
+        Q(locked_until__isnull=True) | Q(locked_until__lte=now)
+    ).update(locked_until=now + timedelta(seconds=30))
+    if not acquired:
+        return fallback(WeatherRateLimit("Another forecast is being checked. Please try again in a few seconds.", 5))
+    try:
+        control.refresh_from_db()
+        if control.retry_at and control.retry_at > timezone.now():
+            wait = max(1, int((control.retry_at - timezone.now()).total_seconds()))
+            return fallback(WeatherRateLimit("Weather checks are paused while the provider recovers. Please try again later.", wait))
+        # A different worker may have completed this same entry since our first read.
+        entry.refresh_from_db()
+        if entry.payload and entry.fetched_at and entry.fetched_at >= now - timedelta(minutes=30):
+            return saved()
+        payload = load()
+        entry.payload = payload
+        entry.fetched_at = timezone.now()
+        entry.save(update_fields=["payload", "fetched_at"])
+        ForecastCache.objects.filter(pk=control.pk).update(retry_at=None)
+        return {**payload, "cached": False, "stale": False, "updated_at": entry.fetched_at.isoformat()}
+    except APIError as exc:
+        wait = getattr(exc, "retry_after", 60)
+        ForecastCache.objects.filter(pk=control.pk).update(retry_at=timezone.now() + timedelta(seconds=wait))
+        return fallback(exc)
+    finally:
+        # A small interval also prevents bursts of different uncached destinations.
+        ForecastCache.objects.filter(pk=control.pk).update(locked_until=timezone.now() + timedelta(seconds=2))
 
 
 def convert_budget(amount, target):

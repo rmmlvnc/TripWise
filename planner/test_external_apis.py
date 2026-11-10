@@ -22,6 +22,7 @@ def image_file():
 
 
 @override_settings(GEOAPIFY_API_KEY='test-key', CLOUDINARY_CLOUD_NAME='test-cloud', CLOUDINARY_API_KEY='test-api-key', CLOUDINARY_API_SECRET='test-secret')
+@override_settings(WEATHER_PERSISTENT_CACHE=False)
 class ServiceTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
@@ -223,6 +224,7 @@ class PhotoProviderFailureTests(SimpleTestCase):
             services.upload_photo(image_file(), 1)
 
 
+@override_settings(WEATHER_PERSISTENT_CACHE=False)
 class WeatherRecoveryTests(SimpleTestCase):
     def setUp(self):
         cache.clear()

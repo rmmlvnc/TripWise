@@ -27,6 +27,10 @@ def trip_api(request, pk, provider):
         if provider == "wikipedia":
             return JsonResponse(services.destination_info(trip.destination))
         return JsonResponse({"error": "Unknown service."}, status=404)
+    except services.WeatherRateLimit as exc:
+        response = JsonResponse({"error": str(exc), "retry_after": exc.retry_after}, status=429)
+        response["Retry-After"] = str(exc.retry_after)
+        return response
     except services.APIError as exc:
         return JsonResponse({"error": str(exc)}, status=503)
 

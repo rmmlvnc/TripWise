@@ -44,3 +44,12 @@ class TripPhoto(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+
+
+class ForecastCache(models.Model):
+    """Shared public forecasts and the provider-wide request cooldown."""
+    key = models.CharField(max_length=200, unique=True)
+    payload = models.JSONField(default=dict)
+    fetched_at = models.DateTimeField(null=True, blank=True)
+    retry_at = models.DateTimeField(null=True, blank=True)
+    locked_until = models.DateTimeField(null=True, blank=True)
