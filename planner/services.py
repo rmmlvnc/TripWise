@@ -29,34 +29,57 @@ CURRENCIES = (
 
 
 def _get(url, params):
-    response = None
-    try:
-        response = requests.get(
-            url,
-            params=params,
-            timeout=(3, 10),
-            headers={
+    host = urlsplit(url).hostname
+    is_weather = host == "api.open-meteo.com"
+    # Retry only safe weather GETs; keep the total below Gunicorn's default timeout.
+    attempts = 2 if is_weather else 1
+    for attempt in range(attempts):
+        response = None
+        try:
+            response = requests.get(url, params=params, timeout=(3, 6) if is_weather else (3, 10), headers={
                 "User-Agent": "TripWise/1.0 (local student travel planner)",
                 "Accept": "application/json",
-            },
-        )
-        response.raise_for_status()
-        payload = response.json()
-        if not isinstance(payload, dict):
-            raise ValueError()
-        return payload
-    except (requests.RequestException, ValueError) as exc:
-        # Never log query parameters, response bodies, or exception text.
-        # They can contain API credentials.
-        logger.warning(
-            "External API failed: host=%s status=%s error=%s",
-            urlsplit(url).hostname,
-            response.status_code if response is not None else "none",
-            type(exc).__name__,
-        )
-        raise APIError(
-            "This service is temporarily unavailable. Please try again later."
-        ) from None
+            })
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, dict):
+                raise ValueError()
+            if is_weather and payload.get("error"):
+                logger.warning("Open-Meteo returned error=true")
+                raise APIError("The weather provider could not process these trip dates. Check your destination and dates, then try again.")
+            return payload
+        except requests.HTTPError as exc:
+            status = exc.response.status_code if exc.response is not None else 0
+            if is_weather:
+                # Never log URLs, request params, headers, or raw exception text.
+                logger.warning("Open-Meteo HTTP status=%s attempt=%s", status, attempt + 1)
+                if status >= 500 and attempt + 1 < attempts:
+                    time.sleep(0.25)
+                    continue
+                if status == 429:
+                    raise APIError("The weather provider has reached its request limit. Please wait a few minutes before trying again.") from None
+                if status == 400:
+                    raise APIError("The weather provider could not process these trip dates. Check the selected destination and travel dates.") from None
+                if status in (401, 403):
+                    raise APIError("The weather provider is refusing requests from this server. Please contact the site owner.") from None
+                raise APIError("The weather provider is temporarily unavailable. Please try again shortly.") from None
+            logger.warning("External API failed: host=%s status=%s", host, response.status_code if response is not None else "none")
+            raise APIError("This service is temporarily unavailable. Please try again later.") from None
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            if is_weather:
+                logger.warning("Open-Meteo connection failure=%s attempt=%s", type(exc).__name__, attempt + 1)
+                if attempt + 1 < attempts:
+                    time.sleep(0.25)
+                    continue
+                raise APIError("The weather provider did not respond in time. Please check the forecast again shortly.") from None
+            logger.warning("External API failed: host=%s status=%s", host, response.status_code if response is not None else "none")
+            raise APIError("This service is temporarily unavailable. Please try again later.") from None
+        except (requests.RequestException, ValueError):
+            if is_weather:
+                logger.warning("Open-Meteo response could not be read")
+                raise APIError("The weather provider returned an unreadable response. Please try again shortly.") from None
+            logger.warning("External API failed: host=%s status=%s", host, response.status_code if response is not None else "none")
+            raise APIError("This service is temporarily unavailable. Please try again later.") from None
 
 
 def _cached(key, seconds, load):
@@ -116,10 +139,16 @@ def search_destinations(query):
 
 
 def weather(latitude, longitude, start, end):
+    try:
+        latitude, longitude = float(latitude), float(longitude)
+        if not math.isfinite(latitude) or not math.isfinite(longitude) or not (-90 <= latitude <= 90 and -180 <= longitude <= 180):
+            raise ValueError()
+    except (TypeError, ValueError):
+        raise APIError("Choose your destination again before checking its weather.") from None
     today = date.today()
-    first = max(today, start)
-    last = min(today + timedelta(days=15), end)
-
+    if end < today:
+        raise APIError("This trip has ended. Upcoming weather is available only for current and future trip dates.")
+    first, last = max(today, start), min(today + timedelta(days=15), end)
     if first > last:
         raise APIError(
             "Forecasts cover only the next 16 days. "

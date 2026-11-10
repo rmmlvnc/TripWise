@@ -221,3 +221,53 @@ class PhotoProviderFailureTests(SimpleTestCase):
         post.side_effect = requests.Timeout('request included secret-value')
         with self.assertRaisesMessage(services.PhotoUploadError, 'took too long'):
             services.upload_photo(image_file(), 1)
+
+
+class WeatherRecoveryTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+
+    @patch('planner.services.time.sleep')
+    @patch('planner.services.requests.get')
+    def test_weather_recovers_after_one_timeout(self, get, sleep):
+        get.side_effect = [requests.Timeout('private request data'), Mock(json=lambda: {'daily': {'time': [date.today().isoformat()], 'temperature_2m_max': [30], 'temperature_2m_min': [24], 'precipitation_probability_max': [20]}, 'timezone': 'Asia/Manila'})]
+        result = services.weather(9.80742, 126.15996, date.today(), date.today())
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(result['days'][0]['high'], 30)
+        self.assertEqual(get.call_args.kwargs['timeout'], (3, 6))
+
+    @patch('planner.services.requests.get')
+    def test_rate_limit_is_not_retried(self, get):
+        response = Mock(status_code=429)
+        get.return_value.raise_for_status.side_effect = requests.HTTPError(response=response)
+        with self.assertRaisesMessage(services.APIError, 'request limit'):
+            services.weather(9, 126, date.today(), date.today())
+        self.assertEqual(get.call_count, 1)
+
+    @patch('planner.services.time.sleep')
+    @patch('planner.services.requests.get')
+    def test_server_error_retries_once_and_logs_only_status(self, get, sleep):
+        response = Mock(status_code=503)
+        get.return_value.raise_for_status.side_effect = requests.HTTPError('private URL and headers', response=response)
+        with self.assertLogs('planner.services', level='WARNING') as logs:
+            with self.assertRaisesMessage(services.APIError, 'temporarily unavailable'):
+                services.weather(9, 126, date.today(), date.today())
+        self.assertEqual(get.call_count, 2)
+        self.assertIn('status=503', ' '.join(logs.output))
+        self.assertNotIn('private URL', ' '.join(logs.output))
+
+    @patch('planner.services.requests.get')
+    def test_invalid_coordinates_and_past_trip_do_not_call_provider(self, get):
+        with self.assertRaisesMessage(services.APIError, 'destination again'):
+            services.weather(float('nan'), 126, date.today(), date.today())
+        with self.assertRaisesMessage(services.APIError, 'trip has ended'):
+            services.weather(9, 126, date.today()-timedelta(days=3), date.today()-timedelta(days=1))
+        get.assert_not_called()
+
+    @patch('planner.services.requests.get')
+    def test_bad_request_has_date_guidance_without_retry(self, get):
+        response = Mock(status_code=400)
+        get.return_value.raise_for_status.side_effect = requests.HTTPError(response=response)
+        with self.assertRaisesMessage(services.APIError, 'travel dates'):
+            services.weather(9, 126, date.today(), date.today())
+        self.assertEqual(get.call_count, 1)
