@@ -123,3 +123,5 @@ LOGOUT_REDIRECT_URL = "login"
 
 # API credentials are server-side and shared by SQLite/PostgreSQL configurations.
 from .api_config import GEOAPIFY_API_KEY, CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, CLOUDINARY_API_SECRET
+
+from .api_config import WEATHERAPI_API_KEY

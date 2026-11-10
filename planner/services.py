@@ -56,7 +56,7 @@ CURRENCIES = (
 
 def _get(url, params):
     host = urlsplit(url).hostname
-    is_weather = host == "api.open-meteo.com"
+    is_weather = host == "api.weatherapi.com"
     # Retry only safe weather GETs; keep the total below Gunicorn's default timeout.
     attempts = 2 if is_weather else 1
     for attempt in range(attempts):
@@ -71,14 +71,20 @@ def _get(url, params):
             if not isinstance(payload, dict):
                 raise ValueError()
             if is_weather and payload.get("error"):
-                logger.warning("Open-Meteo returned error=true")
-                raise APIError("The weather provider could not process these trip dates. Check your destination and dates, then try again.")
+                _weatherapi_error(payload, response)
             return payload
         except requests.HTTPError as exc:
             status = exc.response.status_code if exc.response is not None else 0
             if is_weather:
                 # Never log URLs, request params, headers, or raw exception text.
-                logger.warning("Open-Meteo HTTP status=%s attempt=%s", status, attempt + 1)
+                logger.warning("WeatherAPI.com HTTP status=%s attempt=%s", status, attempt + 1)
+                if status < 500:
+                    try:
+                        body = exc.response.json()
+                    except (ValueError, TypeError):
+                        body = {}
+                    if isinstance(body, dict):
+                        _weatherapi_error(body, exc.response)
                 if status >= 500 and attempt + 1 < attempts:
                     time.sleep(0.25)
                     continue
@@ -93,7 +99,7 @@ def _get(url, params):
             raise APIError("This service is temporarily unavailable. Please try again later.") from None
         except (requests.Timeout, requests.ConnectionError) as exc:
             if is_weather:
-                logger.warning("Open-Meteo connection failure=%s attempt=%s", type(exc).__name__, attempt + 1)
+                logger.warning("WeatherAPI.com connection failure=%s attempt=%s", type(exc).__name__, attempt + 1)
                 if attempt + 1 < attempts:
                     time.sleep(0.25)
                     continue
@@ -102,10 +108,26 @@ def _get(url, params):
             raise APIError("This service is temporarily unavailable. Please try again later.") from None
         except (requests.RequestException, ValueError):
             if is_weather:
-                logger.warning("Open-Meteo response could not be read")
+                logger.warning("WeatherAPI.com response could not be read")
                 raise APIError("The weather provider returned an unreadable response. Please try again shortly.") from None
             logger.warning("External API failed: host=%s status=%s", host, response.status_code if response is not None else "none")
             raise APIError("This service is temporarily unavailable. Please try again later.") from None
+
+
+def _weatherapi_error(data, response):
+    error = data.get("error", {})
+    code = error.get("code") if isinstance(error, dict) else None
+    logger.warning("WeatherAPI.com provider error code=%s", code if isinstance(code, int) else "unknown")
+    if code in (1002, 2006, 2008):
+        raise APIError("WeatherAPI.com could not verify the API key. The site owner needs to check WEATHERAPI_API_KEY in Render.")
+    if code in (2007, 2011):
+        raise WeatherRateLimit("The WeatherAPI.com account has reached its monthly quota or configured call cap. The site owner needs to review the account; retrying immediately will not fix this.", _retry_seconds(response))
+    if code in (2009, 2010):
+        raise APIError("WeatherAPI.com denied this request. The site owner needs to check the key's plan and server restrictions.")
+    if code == 1006:
+        raise APIError("WeatherAPI.com could not find this location. Please select your destination again.")
+    if code is not None:
+        raise APIError("WeatherAPI.com could not process the forecast request. Please try again later.")
 
 
 def _cached(key, seconds, load):
@@ -174,59 +196,38 @@ def weather(latitude, longitude, start, end):
     today = date.today()
     if end < today:
         raise APIError("This trip has ended. Upcoming weather is available only for current and future trip dates.")
-    first, last = max(today, start), min(today + timedelta(days=15), end)
+    first, last = max(today, start), min(today + timedelta(days=2), end)
     if first > last:
         raise APIError(
-            "Forecasts cover only the next 16 days. "
+            "Forecasts cover only the next 3 days. "
             "Check back closer to your trip."
         )
 
-    def load():
-        data = _get(
-            "https://api.open-meteo.com/v1/forecast",
-            {
-                "latitude": latitude,
-                "longitude": longitude,
-                "daily": (
-                    "temperature_2m_max,"
-                    "temperature_2m_min,"
-                    "precipitation_probability_max"
-                ),
-                "start_date": first.isoformat(),
-                "end_date": last.isoformat(),
-                "timezone": "auto",
-            },
-        )
-        try:
-            daily = data["daily"]
-            days = [
-                {
-                    "date": day,
-                    "high": high,
-                    "low": low,
-                    "rain": rain,
-                }
-                for day, high, low, rain in zip(
-                    daily["time"],
-                    daily["temperature_2m_max"],
-                    daily["temperature_2m_min"],
-                    daily["precipitation_probability_max"],
-                    strict=True,
-                )
-            ]
-            if not days:
-                raise ValueError()
-            return {
-                "days": days,
-                "timezone": data.get("timezone", ""),
-                "partial": first != start or last != end,
-            }
-        except (KeyError, TypeError, ValueError):
-            raise APIError(
-                "The weather service returned an unexpected response."
-            ) from None
+    api_key = getattr(settings, "WEATHERAPI_API_KEY", "")
+    if not api_key:
+        raise APIError("Weather is not configured yet. The site owner needs to add WEATHERAPI_API_KEY in Render.")
 
-    key = f"weather:{latitude}:{longitude}:{first}:{last}"
+    def load():
+        data = _get("https://api.weatherapi.com/v1/forecast.json", {
+            "key": api_key, "q": f"{latitude},{longitude}", "days": 3,
+            "aqi": "no", "alerts": "no",
+        })
+        try:
+            days = []
+            for row in data["forecast"]["forecastday"]:
+                day = date.fromisoformat(row["date"])
+                if first <= day <= last:
+                    values = row["day"]
+                    days.append({"date": row["date"], "high": values["maxtemp_c"],
+                        "low": values["mintemp_c"], "rain": values.get("daily_chance_of_rain")})
+            if not days:
+                raise APIError("WeatherAPI.com has no forecast for these trip dates yet. The free forecast covers the next 3 days; check again closer to your trip.")
+            return {"days": days, "timezone": data["location"]["tz_id"],
+                "partial": days[0]["date"] != start.isoformat() or days[-1]["date"] != end.isoformat()}
+        except (KeyError, TypeError, ValueError):
+            raise APIError("WeatherAPI.com returned an unexpected forecast response. Please try again later.") from None
+
+    key = f"weatherapi:v1:{latitude}:{longitude}:{first}:{last}"
     if not getattr(settings, "WEATHER_PERSISTENT_CACHE", True):
         return _cached(key, 1800, load)
     return _persistent_forecast(key, load)
@@ -244,7 +245,7 @@ def _persistent_forecast(key, load):
     if entry.payload and entry.fetched_at and entry.fetched_at >= now - timedelta(minutes=30):
         return saved()
 
-    control, _ = ForecastCache.objects.get_or_create(key="open-meteo:control")
+    control, _ = ForecastCache.objects.get_or_create(key="weatherapi:control")
 
     def fallback(error):
         if entry.payload and entry.fetched_at and entry.fetched_at >= now - timedelta(hours=6):

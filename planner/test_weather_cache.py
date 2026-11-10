@@ -1,6 +1,6 @@
 from datetime import date, timedelta
 from unittest.mock import Mock, patch
-from django.test import TestCase, SimpleTestCase
+from django.test import TestCase, SimpleTestCase, override_settings
 from django.utils import timezone
 from django.contrib.auth.models import User
 from django.urls import reverse
@@ -9,9 +9,10 @@ from planner import services
 
 
 def payload():
-    return {"daily": {"time": [date.today().isoformat()], "temperature_2m_max": [30], "temperature_2m_min": [24], "precipitation_probability_max": [20]}, "timezone": "Asia/Manila"}
+    return {"location": {"tz_id": "Asia/Manila"}, "forecast": {"forecastday": [{"date": date.today().isoformat(), "day": {"maxtemp_c": 30, "mintemp_c": 24, "daily_chance_of_rain": 20}}]}}
 
 
+@override_settings(WEATHERAPI_API_KEY="test-weather-key")
 class PersistentWeatherTests(TestCase):
     def check(self, lat=9.80742):
         return services.weather(lat, 126.15996, date.today(), date.today())
@@ -24,7 +25,14 @@ class PersistentWeatherTests(TestCase):
         self.assertFalse(first["cached"])
         self.assertTrue(second["cached"])
         self.assertEqual(get.call_count, 1)
-        self.assertEqual(ForecastCache.objects.exclude(key="open-meteo:control").count(), 1)
+        self.assertEqual(ForecastCache.objects.exclude(key="weatherapi:control").count(), 1)
+
+    @patch("planner.services._get")
+    def test_old_open_meteo_cooldown_does_not_block_weatherapi(self, get):
+        ForecastCache.objects.create(key="open-meteo:control", retry_at=timezone.now()+timedelta(hours=6))
+        get.return_value=payload()
+        self.assertFalse(self.check()["stale"])
+        get.assert_called_once()
 
     @patch("planner.services._get")
     def test_rate_limit_pauses_all_destinations(self, get):
@@ -40,8 +48,8 @@ class PersistentWeatherTests(TestCase):
     def test_saved_forecast_is_dated_when_provider_is_unavailable(self, get):
         get.return_value = payload()
         self.check()
-        ForecastCache.objects.exclude(key="open-meteo:control").update(fetched_at=timezone.now()-timedelta(hours=1))
-        ForecastCache.objects.filter(key="open-meteo:control").update(locked_until=None)
+        ForecastCache.objects.exclude(key="weatherapi:control").update(fetched_at=timezone.now()-timedelta(hours=1))
+        ForecastCache.objects.filter(key="weatherapi:control").update(locked_until=None)
         get.side_effect = services.WeatherRateLimit("Provider request limit", 900)
         result = self.check()
         self.assertTrue(result["stale"])
@@ -53,25 +61,25 @@ class PersistentWeatherTests(TestCase):
     def test_expired_saved_forecast_is_not_presented_as_current(self, get):
         get.return_value = payload()
         self.check()
-        ForecastCache.objects.exclude(key="open-meteo:control").update(fetched_at=timezone.now()-timedelta(hours=7))
-        ForecastCache.objects.filter(key="open-meteo:control").update(retry_at=timezone.now()+timedelta(minutes=5))
+        ForecastCache.objects.exclude(key="weatherapi:control").update(fetched_at=timezone.now()-timedelta(hours=7))
+        ForecastCache.objects.filter(key="weatherapi:control").update(retry_at=timezone.now()+timedelta(minutes=5))
         with self.assertRaises(services.WeatherRateLimit):
             self.check()
         self.assertEqual(get.call_count, 1)
 
     @patch("planner.services._get")
     def test_worker_lock_prevents_duplicate_fetches(self, get):
-        ForecastCache.objects.create(key="open-meteo:control", locked_until=timezone.now()+timedelta(seconds=25))
+        ForecastCache.objects.create(key="weatherapi:control", locked_until=timezone.now()+timedelta(seconds=25))
         with self.assertRaisesMessage(services.WeatherRateLimit, "Another forecast"):
             self.check()
         get.assert_not_called()
 
     @patch("planner.services._get")
     def test_expired_cooldown_allows_new_forecast(self, get):
-        ForecastCache.objects.create(key="open-meteo:control", retry_at=timezone.now()-timedelta(seconds=1), locked_until=None)
+        ForecastCache.objects.create(key="weatherapi:control", retry_at=timezone.now()-timedelta(seconds=1), locked_until=None)
         get.return_value = payload()
         self.assertFalse(self.check()["stale"])
-        self.assertIsNone(ForecastCache.objects.get(key="open-meteo:control").retry_at)
+        self.assertIsNone(ForecastCache.objects.get(key="weatherapi:control").retry_at)
 
     @patch("planner.services.weather")
     def test_api_sends_retry_after_and_rate_limit_status(self, weather):

@@ -53,3 +53,5 @@ GEOAPIFY_API_KEY = os.environ.get("GEOAPIFY_API_KEY", "").strip()
 CLOUDINARY_CLOUD_NAME = os.environ.get("CLOUDINARY_CLOUD_NAME", "").strip()
 CLOUDINARY_API_KEY = os.environ.get("CLOUDINARY_API_KEY", "").strip()
 CLOUDINARY_API_SECRET = os.environ.get("CLOUDINARY_API_SECRET", "").strip()
+
+WEATHERAPI_API_KEY = os.environ.get("WEATHERAPI_API_KEY", "").strip()

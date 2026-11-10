@@ -22,7 +22,7 @@ def image_file():
 
 
 @override_settings(GEOAPIFY_API_KEY='test-key', CLOUDINARY_CLOUD_NAME='test-cloud', CLOUDINARY_API_KEY='test-api-key', CLOUDINARY_API_SECRET='test-secret')
-@override_settings(WEATHER_PERSISTENT_CACHE=False)
+@override_settings(WEATHER_PERSISTENT_CACHE=False, WEATHERAPI_API_KEY="test-weather-key")
 class ServiceTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
@@ -62,15 +62,16 @@ class ServiceTests(SimpleTestCase):
     @patch('planner.services.requests.get')
     def test_weather_uses_only_overlapping_trip_dates(self, get):
         today = date.today()
-        get.return_value.json.return_value = {'timezone': 'Asia/Tokyo', 'daily': {'time': [today.isoformat()], 'temperature_2m_max': [22], 'temperature_2m_min': [15], 'precipitation_probability_max': [40]}}
+        get.return_value.json.return_value = {'location': {'tz_id': 'Asia/Tokyo'}, 'forecast': {'forecastday': [{'date': today.isoformat(), 'day': {'maxtemp_c': 22, 'mintemp_c': 15, 'daily_chance_of_rain': 40}}]}}
         result = services.weather(35.68, 139.69, today - timedelta(days=1), today + timedelta(days=30))
         self.assertTrue(result['partial'])
         self.assertEqual(result['days'][0]['high'], 22)
-        self.assertEqual(get.call_args.kwargs['params']['end_date'], (today + timedelta(days=15)).isoformat())
+        self.assertEqual(get.call_args.kwargs['params']['days'], 3)
+        self.assertEqual(get.call_args.kwargs['params']['key'], 'test-weather-key')
 
     @patch('planner.services.requests.get')
     def test_far_future_trip_does_not_request_fake_forecast(self, get):
-        with self.assertRaisesMessage(services.APIError, '16 days'):
+        with self.assertRaisesMessage(services.APIError, '3 days'):
             services.weather(35, 139, date.today() + timedelta(days=30), date.today() + timedelta(days=40))
         get.assert_not_called()
 
@@ -119,7 +120,7 @@ class APIViewTests(TestCase):
         with patch('planner.services.requests.get') as get:
             response = self.client.get(reverse('trip_detail', args=[self.trip.pk]))
         self.assertEqual(response.status_code, 200)
-        for name in ['Geoapify', 'Open-Meteo', 'Frankfurter', 'Wikipedia', 'Cloudinary']:
+        for name in ['Geoapify', 'WeatherAPI.com', 'Frankfurter', 'Wikipedia', 'Cloudinary']:
             self.assertContains(response, name)
         get.assert_not_called()
 
@@ -224,7 +225,7 @@ class PhotoProviderFailureTests(SimpleTestCase):
             services.upload_photo(image_file(), 1)
 
 
-@override_settings(WEATHER_PERSISTENT_CACHE=False)
+@override_settings(WEATHER_PERSISTENT_CACHE=False, WEATHERAPI_API_KEY="test-weather-key")
 class WeatherRecoveryTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
@@ -232,7 +233,7 @@ class WeatherRecoveryTests(SimpleTestCase):
     @patch('planner.services.time.sleep')
     @patch('planner.services.requests.get')
     def test_weather_recovers_after_one_timeout(self, get, sleep):
-        get.side_effect = [requests.Timeout('private request data'), Mock(json=lambda: {'daily': {'time': [date.today().isoformat()], 'temperature_2m_max': [30], 'temperature_2m_min': [24], 'precipitation_probability_max': [20]}, 'timezone': 'Asia/Manila'})]
+        get.side_effect = [requests.Timeout('private request data'), Mock(json=lambda: {'location': {'tz_id': 'Asia/Manila'}, 'forecast': {'forecastday': [{'date': date.today().isoformat(), 'day': {'maxtemp_c': 30, 'mintemp_c': 24, 'daily_chance_of_rain': 20}}]}})]
         result = services.weather(9.80742, 126.15996, date.today(), date.today())
         self.assertEqual(get.call_count, 2)
         self.assertEqual(result['days'][0]['high'], 30)
@@ -273,3 +274,38 @@ class WeatherRecoveryTests(SimpleTestCase):
         with self.assertRaisesMessage(services.APIError, 'travel dates'):
             services.weather(9, 126, date.today(), date.today())
         self.assertEqual(get.call_count, 1)
+
+
+@override_settings(WEATHERAPI_API_KEY="test-weather-key", WEATHER_PERSISTENT_CACHE=False)
+class WeatherAPISwitchTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+
+    @override_settings(WEATHERAPI_API_KEY="")
+    @patch("planner.services.requests.get")
+    def test_missing_weatherapi_key_never_calls_network(self, get):
+        with self.assertRaisesMessage(services.APIError, "WEATHERAPI_API_KEY"):
+            services.weather(14.59,120.98,date.today(),date.today())
+        get.assert_not_called()
+
+    @patch("planner.services.requests.get")
+    def test_invalid_key_is_not_leaked(self, get):
+        response=Mock(status_code=401,headers={})
+        response.json.return_value={"error":{"code":2006,"message":"Invalid test-weather-key"}}
+        get.return_value.raise_for_status.side_effect=requests.HTTPError(response=response)
+        with self.assertRaises(services.APIError) as failure:
+            services.weather(14.59,120.98,date.today(),date.today())
+        self.assertIn("API key",str(failure.exception))
+        self.assertNotIn("test-weather-key",str(failure.exception))
+        self.assertEqual(get.call_count,1)
+
+    @patch("planner.services.requests.get")
+    def test_monthly_quota_is_distinguished_from_auth_failure(self,get):
+        response=Mock(status_code=403,headers={"Retry-After":"3600"})
+        response.json.return_value={"error":{"code":2007,"message":"Monthly quota reached"}}
+        get.return_value.raise_for_status.side_effect=requests.HTTPError(response=response)
+        with self.assertRaises(services.WeatherRateLimit) as failure:
+            services.weather(14.59,120.98,date.today(),date.today())
+        self.assertIn("monthly quota",str(failure.exception))
+        self.assertEqual(failure.exception.retry_after,3600)
+        self.assertEqual(get.call_count,1)

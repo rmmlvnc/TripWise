@@ -53,12 +53,14 @@ and stores only its HTTPS delivery URL and public ID in PostgreSQL. Removing a p
 also deletes it in Cloudinary. Deleting a trip removes its cloud photos first;
 if the provider fails, the trip remains so you can retry.
 
-### Open-Meteo
+### WeatherAPI.com (replaces Open-Meteo)
 
-No API key for the public noncommercial service. Select a destination using Geoapify,
-then click Check forecast. Only trip dates within the next 16 days are requested.
-For trips beyond that horizon, the page explains when to check again. A trip partly
-inside the window displays only the available dates, clearly labeled.
+Set WEATHERAPI_API_KEY in Render Environment and your local api_credentials.json.
+TripWise calls https://api.weatherapi.com/v1/forecast.json with the selected
+coordinates and days=3. Only trip dates overlapping the 3-day window are displayed.
+This stays within the free-plan forecast horizon even while your account is on trial.
+Forecasts and rate-limit cooldowns are shared in PostgreSQL, separate from the old
+Open-Meteo cache. Old provider records do not need to be deleted.
 
 ### Frankfurter
 
